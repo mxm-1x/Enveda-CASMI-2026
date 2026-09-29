@@ -25,9 +25,9 @@ def main():
     commit = subprocess.check_output(["git", "rev-parse", args.commit], cwd=ROOT, text=True).strip()
     if output.exists():
         shutil.rmtree(output)
-    (output / "src").mkdir(parents=True)
+    output.mkdir(parents=True)
     for source in (ROOT / "src").glob("*.py"):
-        shutil.copy2(source, output / "src" / source.name)
+        shutil.copy2(source, output / source.name)
     shutil.copy2(ROOT / "requirements-kaggle.txt", output / "requirements-kaggle.txt")
     (output / "SOURCE_COMMIT.txt").write_text(commit + "\n", encoding="utf-8")
     (output / "README.md").write_text(
