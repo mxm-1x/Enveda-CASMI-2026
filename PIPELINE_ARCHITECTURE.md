@@ -46,9 +46,12 @@ The committed competition run cannot `git clone` GitHub while internet is off. G
 │   ├── score.py                  # molecule-level reciprocal rank helpers
 │   └── write_submission.py       # validate SMILES, IDs, top-25, connectivity dedup
 ├── notebooks/
-│   └── 00_retrieval_baseline.ipynb
+│   ├── 00_retrieval_baseline.ipynb
+│   └── 01_cpu_validation.ipynb
 ├── kaggle/
 │   └── kernel-metadata.example.json # replace user and input dataset slugs
+├── scripts/
+│   └── package_kaggle_source.py    # clean Git snapshot for private Kaggle input
 ├── artifacts/                    # ignored locally; datasets/versioned outputs on Kaggle
 └── reports/                       # metrics/config/commit SHA, no raw competition data
 ```

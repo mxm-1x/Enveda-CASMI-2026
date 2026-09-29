@@ -26,4 +26,12 @@ python3 src/audit_overlap.py \
 
 For validation and metric-equivalent submission checks, run the Kaggle notebook with the pinned offline RDKit input attached. Its metadata template is [kernel-metadata.example.json](kaggle/kernel-metadata.example.json); replace the account and dataset slugs before upload.
 
+After accepting the competition rules and configuring the Kaggle CLI, commit source changes and stage a clean snapshot with:
+
+```bash
+python3 scripts/package_kaggle_source.py
+```
+
+Upload `/private/tmp/casmi-source` as a private Kaggle Dataset, then attach it with the competition input and the pinned offline RDKit dataset. The validation notebook is [01_cpu_validation.ipynb](notebooks/01_cpu_validation.ipynb); it measures source-held-out natural-product retrieval and a small structure holdout before we spend GPU time.
+
 The project uses the local MacBook for development and Kaggle CPU/GPU for data processing and training. Google Cloud Run is excluded. A committed competition notebook must run offline within nine hours; code from GitHub must be uploaded to Kaggle before execution.
