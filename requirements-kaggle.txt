@@ -1,0 +1,5 @@
+# Kaggle images already include Python, NumPy, pandas, PyArrow, and PyTorch.
+# Install only these if missing in the selected image:
+scikit-learn>=1.5
+# RDKit is attached from the competition's offline 2026.03.3 wheel/dataset;
+# do not install it from the internet in the committed notebook.

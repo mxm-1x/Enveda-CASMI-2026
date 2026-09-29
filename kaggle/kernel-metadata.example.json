@@ -1,0 +1,14 @@
+{
+  "id": "<your-kaggle-username>/enveda-casmi26-retrieval-baseline",
+  "title": "Enveda CASMI 2026 Retrieval Baseline",
+  "code_file": "notebooks/00_retrieval_baseline.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_internet": false,
+  "dataset_sources": ["<your-kaggle-username>/casmi-source", "<rdkit-offline-dataset-slug>"],
+  "competition_sources": ["enveda-CASMI26-molecule-id-mass-spectra"],
+  "kernel_sources": [],
+  "model_sources": []
+}

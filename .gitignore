@@ -1,0 +1,30 @@
+# Competition data and generated artifacts
+enveda-CASMI26-molecule-id-mass-spectra/
+data/
+artifacts/
+reports/generated/
+submissions/
+outputs/
+*.parquet
+*.arrow
+*.feather
+*.npz
+*.npy
+*.pt
+*.pth
+*.ckpt
+
+# Notebook and Python outputs
+.ipynb_checkpoints/
+__pycache__/
+*.py[cod]
+.DS_Store
+.codex/
+graphify-out/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+kaggle.json
+.kaggle/
