@@ -11,6 +11,7 @@ def metric_inchikey14(smiles: str) -> str:
     """
     try:
         from rdkit import Chem
+        from rdkit import rdBase
         from rdkit.Chem.MolStandardize import rdMolStandardize
         from rdkit.Chem import inchi
     except ImportError as exc:
@@ -18,6 +19,12 @@ def metric_inchikey14(smiles: str) -> str:
             "RDKit is required for metric-equivalent molecule deduplication. "
             "Attach the competition's RDKit 2026.03.3 offline wheel in Kaggle."
         ) from exc
+
+    # The competition's tautomer canonicalizer intentionally caps pathological
+    # enumeration. RDKit emits one warning per capped/unkekulizable structure;
+    # these are expected in this dataset and would otherwise flood notebook logs.
+    rdBase.DisableLog("rdApp.warning")
+    rdBase.DisableLog("rdApp.error")
 
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:

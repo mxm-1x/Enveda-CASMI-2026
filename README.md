@@ -10,28 +10,24 @@ The added folder `enveda-CASMI26-molecule-id-mass-spectra/` contains 2,539,608 l
 
 ## Code added
 
-The code now includes streaming retrieval, spectrum preprocessing, RDKit metric keys, structure-grouped folds, validation split preparation, a validation scorer, overlap auditing, and submission validation. [The Kaggle baseline notebook](notebooks/00_retrieval_baseline.ipynb) discovers attached inputs and runs the current retrieval pipeline offline. The retrieval method is a first baseline and still needs grouped validation and tuning. RDKit 2026.03.3 is required; the notebook expects its offline Kaggle wheel input.
+The code includes streaming retrieval, spectrum preprocessing, RDKit metric keys, structure-grouped folds, source- and structure-held-out validation, a validation scorer, overlap auditing, and submission validation. The [CPU validation notebook](notebooks/01_cpu_validation.ipynb) runs both holdouts offline. RDKit 2026.03.3 is required to match competition scoring.
 
-No trained model, validation score, GitHub push, or Kaggle submission is claimed yet. This directory is not currently a Git repository.
+## Current results and decision
 
-## First commands
+The retrieval baseline scored MRR@25 **0.9261** on a 250-structure natural-product source holdout (hit@1 0.880; hit@5 0.976; hit@25 0.996). This is a known-structure retrieval setting: spectra from `enveda-np-examples` were held out while other library spectra for the same structures remained.
 
-The local Mac can run the overlap audit with the available PyArrow installation:
+On a stricter split, 278 metric structures and all 2,096 associated spectra were removed from the reference. The library-only retriever scored **0.000 MRR@25** as expected when the true structures are absent from its candidate pool. This is the key next step: add a frozen public natural-product candidate database and score structures that have no reference spectra. The competition describes hidden examples spanning public spectral-library compounds, known structures without public spectra, and novel structures; a library-only method cannot cover all three classes.
 
-```bash
-python3 src/audit_overlap.py \
-  --train enveda-CASMI26-molecule-id-mass-spectra/train.parquet \
-  --test enveda-CASMI26-molecule-id-mass-spectra/test.parquet
-```
+## Local development and Kaggle
 
-For validation and metric-equivalent submission checks, run the Kaggle notebook with the pinned offline RDKit input attached. Its metadata template is [kernel-metadata.example.json](kaggle/kernel-metadata.example.json); replace the account and dataset slugs before upload.
+Use the MacBook for code, small checks, and Git. The full structure-key map took about nine minutes locally on four CPU workers and is cached for reuse. Kaggle CPU is appropriate for the current retrieval and database pipeline. Save the limited GPU allocation for a learned spectrum-to-fingerprint model after database candidate recall is measured.
 
-After accepting the competition rules and configuring the Kaggle CLI, commit source changes and stage a clean snapshot with:
+Kaggle submissions must run in a notebook with internet disabled and produce `submission.csv`. Upload the versioned source snapshot as a private Kaggle Dataset, attach the competition data and pinned RDKit wheel dataset, then run [01_cpu_validation.ipynb](notebooks/01_cpu_validation.ipynb). No Kaggle CLI or Google Cloud Run is part of this workflow.
+
+To refresh the upload snapshot after committing code:
 
 ```bash
 python3 scripts/package_kaggle_source.py
 ```
 
-Upload `/private/tmp/casmi-source` as a private Kaggle Dataset, then attach it with the competition input and the pinned offline RDKit dataset. The validation notebook is [01_cpu_validation.ipynb](notebooks/01_cpu_validation.ipynb); it measures source-held-out natural-product retrieval and a small structure holdout before we spend GPU time.
-
-The project uses the local MacBook for development and Kaggle CPU/GPU for data processing and training. Google Cloud Run is excluded. A committed competition notebook must run offline within nine hours; code from GitHub must be uploaded to Kaggle before execution.
+The package is staged at `/private/tmp/casmi-source` and copied into `data/kaggle-source-upload/` for the Kaggle Dataset version. The project uses no Kaggle CLI and excludes Google Cloud Run.

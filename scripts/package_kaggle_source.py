@@ -26,7 +26,8 @@ def main():
     if output.exists():
         shutil.rmtree(output)
     output.mkdir(parents=True)
-    for source in (ROOT / "src").glob("*.py"):
+    sources = sorted((ROOT / "src").glob("*.py"))
+    for source in sources:
         shutil.copy2(source, output / source.name)
     shutil.copy2(ROOT / "requirements-kaggle.txt", output / "requirements-kaggle.txt")
     (output / "SOURCE_COMMIT.txt").write_text(commit + "\n", encoding="utf-8")
@@ -35,7 +36,7 @@ def main():
         f"Git commit: {commit}\n",
         encoding="utf-8",
     )
-    print(f"Staged {len(list((output / 'src').glob('*.py')))} Python files at {output}")
+    print(f"Staged {len(sources)} Python files at {output}")
     print(f"Source commit: {commit}")
 
 

@@ -30,6 +30,14 @@ A final calibrated ranker combines evidence and deduplicates by the same tautome
 
 Keep every query acquisition for a molecule together. Use a frozen validation split and a separate training/early-stopping split. Score one list per molecule. Report MRR@25, hit@1/5/25, candidate recall@25, formula accuracy, and per-source results. Run multiple seeds for learned rankers. A [participant report](https://www.kaggle.com/competitions/enveda-CASMI26-molecule-id-mass-spectra/discussion/743254) notes seed noise and same-formula isomers as a major error source; verify those observations locally.
 
+### Local baseline measurements (30 September 2026)
+
+- Source holdout: 1,184 spectra from 250 natural-product structures, excluding `enveda-np-examples` from retrieval; MRR@25 0.9261, hit@1 0.880, hit@5 0.976, hit@25 0.996. This measures retrieval when another library still contains the labeled structure.
+- Strict metric-structure holdout: 2,096 spectra from 278 structures; all 279 raw InChIKey14 aliases mapping to those metric keys were excluded from reference retrieval. Library-only MRR@25 and hit@25 were both 0. This is expected because every candidate is drawn from the remaining training structures, so it directly demonstrates that a spectral-library retriever cannot solve the unseen-structure classes by itself.
+- The strict split's metric-key map is cached and checkpointed; its first local build canonicalized 275,810 unique source keys in about 9 minutes on four CPU workers. Retrieval completed in about 5 minutes. The Kaggle notebook uses CPU; GPU allocation does not accelerate these steps.
+
+The next validation gate is database-known holdout: remove all reference spectra for a selected structure but retain it in a frozen public candidate database. That is the relevant measure for class 2. For class 3, evaluate formula and substructure proposal separately; a zero score on the library-only strict split is not a neural-model tuning target unless the candidate generator can produce the held-out structure.
+
 ## Execution phases and gates
 
 ### Phase 0 — reproducible project and data audit
@@ -80,4 +88,4 @@ Google Cloud Run is excluded. Keep artifacts on Kaggle as versioned notebook out
 
 ## Immediate next implementation milestone
 
-Run `prepare_validation.py` for both structure-held-out and natural-product source-held-out splits on Kaggle, score the retrieval baseline, and profile its memory/runtime. This reveals whether the limiting factor is reference retrieval, candidate coverage, or constitutional-isomer ranking before spending GPU time.
+Build a compact, versioned public natural-product structure candidate table and implement database-known structure holdout. Measure candidate recall before training any GPU model; only spend GPU time after the candidate pool reaches the relevant held-out structures and a CPU ranker establishes a reproducible baseline.

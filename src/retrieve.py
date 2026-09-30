@@ -99,6 +99,9 @@ def _metric_key(smiles, source_key, cache):
     if cache_key in cache:
         return cache[cache_key]
     try:
+        from rdkit import rdBase
+        rdBase.DisableLog("rdApp.warning")
+        rdBase.DisableLog("rdApp.error")
         key = metric_inchikey14(smiles)
     except RuntimeError:
         # Smoke-test fallback only. Kaggle must attach the pinned RDKit wheel.
@@ -107,15 +110,18 @@ def _metric_key(smiles, source_key, cache):
     return key
 
 
-def retrieve(train_path, test_path, *, max_ppm=30.0, fallback_ppm=250.0, max_peaks=256, batch_size=8192, top_k=25, exclude_source=None):
+def retrieve(train_path, test_path, *, max_ppm=30.0, fallback_ppm=250.0, max_peaks=256, batch_size=8192, top_k=25, exclude_source=None, exclude_keys=None):
     queries = _load_queries(test_path, max_peaks)
     mass_index, raw_index = _make_index(queries)
     per_query = [dict() for _ in queries]
     fallback = [dict() for _ in queries]
     key_cache = {}
+    emergency_candidates = []
+    emergency_keys = set()
     columns = ["normalized_smiles", "inchikey14", "ionization_mode", "adduct", "precursor_mz", "ms2_mzs", "ms2_normalized_intensities"]
     if exclude_source:
         columns.append("ingest_lib")
+    excluded_keys = set(exclude_keys or ())
     parquet = pq.ParquetFile(train_path)
     total = 0
     next_progress = 250_000
@@ -126,10 +132,18 @@ def retrieve(train_path, test_path, *, max_ppm=30.0, fallback_ppm=250.0, max_pea
             if exclude_source and data["ingest_lib"][i] == exclude_source:
                 total += 1
                 continue
+            if excluded_keys and _text(data["inchikey14"][i]) in excluded_keys:
+                total += 1
+                continue
             smiles = data["normalized_smiles"][i]
             if not smiles:
                 total += 1
                 continue
+            source_key = _text(data["inchikey14"][i])
+            raw_key = source_key or smiles
+            if raw_key not in emergency_keys:
+                emergency_keys.add(raw_key)
+                emergency_candidates.append((raw_key, smiles))
             mode, adduct = _text(data["ionization_mode"][i]), _text(data["adduct"][i])
             precursor = data["precursor_mz"][i]
             ref_neutral = neutral_mass(precursor, adduct)
@@ -142,8 +156,6 @@ def retrieve(train_path, test_path, *, max_ppm=30.0, fallback_ppm=250.0, max_pea
                 total += 1
                 continue
 
-            source_key = _text(data["inchikey14"][i])
-            raw_key = source_key or smiles
             close_matches = []
 
             for query_id in candidate_queries:
@@ -258,7 +270,20 @@ def retrieve(train_path, test_path, *, max_ppm=30.0, fallback_ppm=250.0, max_pea
                     if len(candidates) == top_k:
                         break
         if not candidates:
-            raise RuntimeError(f"No candidates for {molecule_id}; increase fallback_ppm or add a structure candidate database")
+            # A few held-out acquisitions have no library reference within the
+            # configured mass window. Preserve a valid submission row; these
+            # candidates are an emergency only and carry no spectral evidence.
+            seen_metric_keys = set()
+            candidates = []
+            for raw_key, smiles in emergency_candidates:
+                metric_key = _metric_key(smiles, raw_key, key_cache)
+                if metric_key and metric_key not in seen_metric_keys:
+                    seen_metric_keys.add(metric_key)
+                    candidates.append(smiles)
+                    if len(candidates) == top_k:
+                        break
+            if not candidates:
+                raise RuntimeError(f"No valid candidate structures available for {molecule_id}")
         rows.append({"molecule_id": molecule_id, "smiles": ";".join(candidates)})
 
     print(f"Scanned {total:,} training rows; canonicalized {len(key_cache):,} candidate structures")
@@ -276,11 +301,19 @@ def main():
     parser.add_argument("--batch-size", type=int, default=8192)
     parser.add_argument("--top-k", type=int, default=25)
     parser.add_argument("--exclude-source", help="Skip this ingest_lib while retrieving, for source-held-out validation")
+    parser.add_argument("--exclude-keys-file", help="Newline-separated raw inchikey14 values excluded from reference retrieval")
     args = parser.parse_args()
     if not 1 <= args.top_k <= 25:
         parser.error("--top-k must be between 1 and 25")
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
-    result = retrieve(args.train, args.test, max_ppm=args.max_ppm, fallback_ppm=args.fallback_ppm, max_peaks=args.max_peaks, batch_size=args.batch_size, top_k=args.top_k, exclude_source=args.exclude_source)
+    exclude_keys = None
+    if args.exclude_keys_file:
+        exclude_keys = {
+            line.strip() for line in Path(args.exclude_keys_file).read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        }
+        print(f"Excluding {len(exclude_keys):,} raw structure keys")
+    result = retrieve(args.train, args.test, max_ppm=args.max_ppm, fallback_ppm=args.fallback_ppm, max_peaks=args.max_peaks, batch_size=args.batch_size, top_k=args.top_k, exclude_source=args.exclude_source, exclude_keys=exclude_keys)
     result.to_csv(args.output, index=False)
     print(f"Wrote {len(result):,} molecule predictions to {args.output}")
 
