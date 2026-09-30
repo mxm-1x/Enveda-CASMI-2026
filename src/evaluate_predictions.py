@@ -23,12 +23,15 @@ def main():
     if not {"molecule_id", "smiles"}.issubset(pred.columns):
         raise ValueError("Prediction CSV requires molecule_id and smiles columns")
     pred_map = dict(zip(pred["molecule_id"], pred["smiles"]))
+    key_cache = {}
     ranks = []
     for molecule_id in truth_by_molecule:
         candidates = [part.strip() for part in str(pred_map.get(molecule_id, "")).split(";") if part.strip()]
         keys = []
         for smiles in candidates[:25]:
-            key = metric_inchikey14(smiles)
+            if smiles not in key_cache:
+                key_cache[smiles] = metric_inchikey14(smiles)
+            key = key_cache[smiles]
             if key and key not in keys:
                 keys.append(key)
         ranks.append(reciprocal_rank_at_25(keys, molecule_id))

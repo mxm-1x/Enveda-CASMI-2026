@@ -46,22 +46,74 @@ def main() -> None:
         parser.error("--fraction must be between 0 and 1")
 
     parquet = pq.ParquetFile(args.train)
-    source_keys = {}
-    for batch in parquet.iter_batches(columns=["inchikey14", "normalized_smiles"], batch_size=args.batch_size):
-        for raw_key, smiles in zip(batch.column(0).to_pylist(), batch.column(1).to_pylist()):
-            if raw_key and smiles and raw_key not in source_keys:
-                source_keys[raw_key] = metric_inchikey14(smiles)
-
-    heldout_metric_keys = {
-        metric_key for metric_key in set(source_keys.values())
-        if metric_key and selected_for_holdout(metric_key, args.fraction, args.seed)
-    }
     if args.mode == "source" and "ingest_lib" not in parquet.schema_arrow.names:
         raise ValueError("Source holdout requires the ingest_lib column")
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     refs_path, queries_path = out_dir / "reference.parquet", out_dir / "queries.parquet"
+
+    if args.mode == "source":
+        # Source holdouts only need the small query library. Let Arrow filter
+        # the parquet directly and avoid copying/rebuilding the 2.5M-row
+        # reference table; retrieval will exclude this library while scanning
+        # the original train parquet.
+        query_columns = [
+            "inchikey14", "normalized_smiles", "ionization_mode", "adduct",
+            "precursor_mz", "ms2_mzs", "ms2_normalized_intensities",
+        ]
+        table = pq.read_table(
+            args.train,
+            columns=query_columns,
+            filters=[("ingest_lib", "=", args.query_source)],
+        )
+        data = table.to_pydict()
+        key_cache = {}
+        molecule_ids = []
+        for raw_key, smiles in zip(data["inchikey14"], data["normalized_smiles"]):
+            if raw_key not in key_cache:
+                key_cache[raw_key] = metric_inchikey14(smiles) if raw_key and smiles else ""
+            molecule_ids.append(key_cache[raw_key])
+        keep = [i for i, key in enumerate(molecule_ids) if key]
+        query_data = {"molecule_id": [molecule_ids[i] for i in keep]}
+        for name in QUERY_COLUMNS:
+            if name != "molecule_id":
+                query_data[name] = [data[name][i] for i in keep]
+        if not keep:
+            raise RuntimeError(f"No valid queries found for source {args.query_source!r}")
+        pq.write_table(pa.Table.from_pydict(query_data), queries_path, compression="zstd")
+        print(
+            f"Mode=source; query rows={len(keep):,}; "
+            f"held-out structures={len(set(query_data['molecule_id'])):,}"
+        )
+        print(f"Queries: {queries_path}\nReference: original training parquet (exclude source during retrieval)")
+        return
+
+    # Source holdouts only need metric keys for the small query library. The
+    # previous full-table canonicalization spent hours processing structures
+    # that are never queried. Structure holdouts still need the full mapping
+    # to prevent cross-tautomer leakage.
+    key_columns = ["inchikey14", "normalized_smiles"]
+    if args.mode == "source":
+        key_columns.append("ingest_lib")
+    source_keys = {}
+    for batch in parquet.iter_batches(columns=key_columns, batch_size=args.batch_size):
+        raw_keys = batch.column(0).to_pylist()
+        smiles_values = batch.column(1).to_pylist()
+        libs = batch.column(2).to_pylist() if args.mode == "source" else None
+        for index, (raw_key, smiles) in enumerate(zip(raw_keys, smiles_values)):
+            if args.mode == "source" and libs[index] != args.query_source:
+                continue
+            if raw_key and smiles and raw_key not in source_keys:
+                source_keys[raw_key] = metric_inchikey14(smiles)
+
+    heldout_metric_keys = set()
+    if args.mode == "structure":
+        heldout_metric_keys = {
+            metric_key for metric_key in set(source_keys.values())
+            if metric_key and selected_for_holdout(metric_key, args.fraction, args.seed)
+        }
+
     ref_writer = query_writer = None
     ref_rows = query_rows = 0
     read_columns = list(dict.fromkeys(REF_COLUMNS + ["ingest_lib"]))
