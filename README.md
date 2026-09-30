@@ -10,7 +10,7 @@ The added folder `enveda-CASMI26-molecule-id-mass-spectra/` contains 2,539,608 l
 
 ## Code added
 
-The code includes streaming retrieval, spectrum preprocessing, RDKit metric keys, structure-grouped folds, source- and structure-held-out validation, a COCONUT CSV/ZIP candidate-table builder, a validation scorer, overlap auditing, and submission validation. The [CPU validation notebook](notebooks/01_cpu_validation.ipynb) runs both holdouts offline. RDKit 2026.03.3 is required to match competition scoring.
+The code includes streaming retrieval, spectrum preprocessing, RDKit metric keys, structure-grouped folds, source-, structure-, and database-held-out validation, a COCONUT CSV/ZIP candidate-table builder, an exact-mass candidate ranker, a validation scorer, overlap auditing, and submission validation. The [CPU validation notebook](notebooks/01_cpu_validation.ipynb) runs the library holdouts; [the database validation notebook](notebooks/02_database_validation.ipynb) builds the external candidate table and measures the COCONUT route. RDKit 2026.03.3 is required to match competition scoring.
 
 ## Current results and decision
 

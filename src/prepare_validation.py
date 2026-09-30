@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare source- or metric-structure-held-out retrieval validation queries."""
+"""Prepare source-, structure-, or database-held-out validation queries."""
 from __future__ import annotations
 
 import argparse
@@ -159,11 +159,79 @@ def _structure_queries(args, parquet, out_dir: Path, queries_path: Path) -> None
     print(f"Queries: {queries_path}\nExcluded keys: {excluded_path}")
 
 
+def _database_queries(args, parquet, out_dir: Path, queries_path: Path) -> None:
+    if not args.candidate_database:
+        raise ValueError("Database holdout requires --candidate-database")
+    metric_by_raw = _metric_key_map(args, parquet, out_dir)
+    candidate_table = pq.read_table(args.candidate_database, columns=["metric_key"])
+    candidate_metric_keys = set(candidate_table.column("metric_key").to_pylist())
+    eligible_metric_keys = {
+        metric_key for metric_key in set(metric_by_raw.values())
+        if metric_key and metric_key in candidate_metric_keys
+    }
+    selected_metric_keys = {
+        key for key in eligible_metric_keys
+        if selected_for_holdout(key, args.fraction, args.seed)
+    }
+    if not selected_metric_keys:
+        raise RuntimeError(
+            "Database holdout selected no structures shared by train and candidate database; "
+            "increase --fraction or check candidate metric_key values"
+        )
+
+    selected_raw_keys = {
+        raw_key for raw_key, metric_key in metric_by_raw.items()
+        if metric_key in selected_metric_keys
+    }
+    input_columns = [*QUERY_INPUT_COLUMNS, "ingest_lib"]
+    table = pq.read_table(
+        args.train,
+        columns=input_columns,
+        filters=[("inchikey14", "in", sorted(selected_raw_keys))],
+    )
+    data = table.to_pydict()
+    query_rows = []
+    observed_metric_keys = set()
+    for i, raw_key in enumerate(data["inchikey14"]):
+        if data["ingest_lib"][i] != args.query_source:
+            continue
+        metric_key = metric_by_raw.get(raw_key, "")
+        if not metric_key:
+            continue
+        observed_metric_keys.add(metric_key)
+        row = {"molecule_id": metric_key}
+        row.update({name: data[name][i] for name in QUERY_COLUMNS})
+        query_rows.append(row)
+    if not query_rows:
+        raise RuntimeError(
+            f"No selected COCONUT structures have query spectra from source {args.query_source!r}; "
+            "increase --fraction or choose another --query-source"
+        )
+    pq.write_table(pa.Table.from_pylist(query_rows), queries_path, compression="zstd")
+
+    # Exclude every raw label variant for each queried metric key, even when
+    # only enveda-180 spectra are exposed as queries.
+    heldout_raw_keys = {
+        raw_key for raw_key, metric_key in metric_by_raw.items()
+        if metric_key in observed_metric_keys
+    }
+    excluded_path = out_dir / "heldout_raw_keys.txt"
+    excluded_path.write_text("\n".join(sorted(heldout_raw_keys)) + "\n", encoding="utf-8")
+    print(
+        f"Mode=database; candidate structures shared with train={len(eligible_metric_keys):,}; "
+        f"selected by hash={len(selected_metric_keys):,}; "
+        f"query structures={len(observed_metric_keys):,}; query rows={len(query_rows):,}; "
+        f"excluded raw structure keys={len(heldout_raw_keys):,}"
+    )
+    print(f"Queries: {queries_path}\nExcluded keys: {excluded_path}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--train", required=True)
     parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--mode", choices=["structure", "source"], default="structure")
+    parser.add_argument("--mode", choices=["structure", "source", "database"], default="structure")
+    parser.add_argument("--candidate-database", help="Prepared candidate parquet with a metric_key column")
     parser.add_argument("--fraction", type=float, default=0.001)
     parser.add_argument("--query-source", default="enveda-np-examples")
     parser.add_argument("--seed", type=int, default=20260929)
@@ -183,6 +251,10 @@ def main() -> None:
         if "ingest_lib" not in parquet.schema_arrow.names:
             raise ValueError("Source holdout requires the ingest_lib column")
         _source_queries(args, out_dir, queries_path)
+    elif args.mode == "database":
+        if "ingest_lib" not in parquet.schema_arrow.names:
+            raise ValueError("Database holdout requires the ingest_lib column")
+        _database_queries(args, parquet, out_dir, queries_path)
     else:
         _structure_queries(args, parquet, out_dir, queries_path)
 
