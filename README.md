@@ -10,7 +10,7 @@ The added folder `enveda-CASMI26-molecule-id-mass-spectra/` contains 2,539,608 l
 
 ## Code added
 
-The code includes streaming retrieval, spectrum preprocessing, RDKit metric keys, structure-grouped folds, source- and structure-held-out validation, a validation scorer, overlap auditing, and submission validation. The [CPU validation notebook](notebooks/01_cpu_validation.ipynb) runs both holdouts offline. RDKit 2026.03.3 is required to match competition scoring.
+The code includes streaming retrieval, spectrum preprocessing, RDKit metric keys, structure-grouped folds, source- and structure-held-out validation, a COCONUT CSV/ZIP candidate-table builder, a validation scorer, overlap auditing, and submission validation. The [CPU validation notebook](notebooks/01_cpu_validation.ipynb) runs both holdouts offline. RDKit 2026.03.3 is required to match competition scoring.
 
 ## Current results and decision
 
@@ -31,3 +31,5 @@ python3 scripts/package_kaggle_source.py
 ```
 
 The package is staged at `/private/tmp/casmi-source` and copied into `data/kaggle-source-upload/` for the Kaggle Dataset version. The project uses no Kaggle CLI and excludes Google Cloud Run.
+
+After downloading the official COCONUT CSV-lite archive, attach it as a private Kaggle Dataset and run `src/prepare_candidates.py` on Kaggle CPU to create a compact Parquet table with canonical SMILES, formula, exact mass, and the competition metric key. It deduplicates structures by InChIKey14 and writes a provenance manifest beside the table.

@@ -34,6 +34,35 @@ def metric_inchikey14(smiles: str) -> str:
     return key.split("-", 1)[0] if key else ""
 
 
+def candidate_structure(smiles: str) -> tuple[str, str, str, float] | None:
+    """Return metric key, standardized SMILES, formula, and exact neutral mass.
+
+    This applies the same pinned tautomer canonicalization used by scoring and
+    derives the candidate-table fields from that canonical molecule in one pass.
+    """
+    try:
+        from rdkit import Chem, rdBase
+        from rdkit.Chem import Descriptors, inchi, rdMolDescriptors
+        from rdkit.Chem.MolStandardize import rdMolStandardize
+    except ImportError as exc:
+        raise RuntimeError("RDKit is required to prepare the candidate database") from exc
+
+    rdBase.DisableLog("rdApp.warning")
+    rdBase.DisableLog("rdApp.error")
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return None
+    mol = rdMolStandardize.TautomerEnumerator().Canonicalize(mol)
+    full_key = inchi.MolToInchiKey(mol)
+    metric_key = full_key.split("-", 1)[0] if full_key else ""
+    if not metric_key:
+        return None
+    standardized_smiles = Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True)
+    formula = rdMolDescriptors.CalcMolFormula(mol)
+    exact_mass = float(Descriptors.ExactMolWt(mol))
+    return metric_key, standardized_smiles, formula, exact_mass
+
+
 def standardize_smiles(smiles: str) -> str:
     """Return a canonical isomeric SMILES after RDKit tautomer canonicalization."""
     try:
