@@ -11,7 +11,15 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn import __version__ as sklearn_version
 
-from train_reranker import FEATURE_COLUMNS
+from train_reranker import FEATURE_COLUMNS as FRAGMENT_FEATURE_COLUMNS
+
+ANALOG_FEATURE_COLUMNS = [
+    "analog_score",
+    "analog_similarity",
+    "analog_tanimoto",
+    "analog_mass_delta_da",
+    "analog_reference_count",
+]
 
 
 def main() -> None:
@@ -23,7 +31,10 @@ def main() -> None:
     args = parser.parse_args()
 
     frame = pd.read_parquet(args.features)
-    required = {"molecule_id", "metric_key", *FEATURE_COLUMNS}
+    feature_columns = list(FRAGMENT_FEATURE_COLUMNS)
+    if set(ANALOG_FEATURE_COLUMNS).issubset(frame.columns):
+        feature_columns.extend(ANALOG_FEATURE_COLUMNS)
+    required = {"molecule_id", "metric_key", *feature_columns}
     missing = required - set(frame.columns)
     if missing:
         raise ValueError(f"Feature table missing columns: {sorted(missing)}")
@@ -34,7 +45,7 @@ def main() -> None:
     if frame.empty or not frame["label"].any() or frame["label"].all():
         raise RuntimeError("Training features must contain positive and negative candidates")
 
-    x = frame[FEATURE_COLUMNS].replace([np.inf, -np.inf], np.nan).fillna(0.0).to_numpy(dtype=np.float32)
+    x = frame[feature_columns].replace([np.inf, -np.inf], np.nan).fillna(0.0).to_numpy(dtype=np.float32)
     y = frame["label"].to_numpy(dtype=np.int8)
     positive_weight = len(y) / max(2 * int(y.sum()), 1)
     negative_weight = len(y) / max(2 * int((y == 0).sum()), 1)
@@ -53,14 +64,15 @@ def main() -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump({
         "model": model,
-        "features": FEATURE_COLUMNS,
+        "features": feature_columns,
         "seed": args.seed,
         "training_molecules": int(frame["molecule_id"].nunique()),
         "training_rows": int(len(frame)),
         "sklearn_version": sklearn_version,
     }, output)
     print(
-        f"Fit on {frame['molecule_id'].nunique():,} molecules and {len(frame):,} candidate rows; "
+        f"Fit on {frame['molecule_id'].nunique():,} molecules and {len(frame):,} candidate rows "
+        f"using {len(feature_columns)} features; "
         f"saved {output} (scikit-learn {sklearn_version})"
     )
 

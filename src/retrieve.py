@@ -121,7 +121,7 @@ def _metric_key(smiles, source_key, cache):
     return key
 
 
-def retrieve(train_path, test_path, *, max_ppm=30.0, fallback_ppm=250.0, max_peaks=256, batch_size=8192, top_k=25, exclude_source=None, exclude_keys=None):
+def retrieve(train_path, test_path, *, max_ppm=30.0, fallback_ppm=250.0, max_peaks=256, batch_size=8192, top_k=25, exclude_source=None, exclude_keys=None, diagnostics_output=None):
     queries = _load_queries(test_path, max_peaks)
     mass_index, raw_index = _make_index(queries)
     per_query = [dict() for _ in queries]
@@ -227,6 +227,7 @@ def retrieve(train_path, test_path, *, max_ppm=30.0, fallback_ppm=250.0, max_pea
         grouped_queries[query["molecule_id"]].append(query_id)
 
     rows = []
+    diagnostics = []
     for molecule_id, query_ids in grouped_queries.items():
         raw_evidence, smiles_by_raw_key = defaultdict(dict), {}
         for query_id in query_ids:
@@ -259,10 +260,30 @@ def retrieve(train_path, test_path, *, max_ppm=30.0, fallback_ppm=250.0, max_pea
                 scores = sorted(by_query.values(), reverse=True)
                 top = scores[:min(3, len(query_ids))]
                 combined = 0.7 * sum(top) / len(top) + 0.3 * scores[0]
-                ranked.append((combined, metric_key, smiles_by_metric_key[metric_key]))
-            ranked.sort(reverse=True)
-            candidates = [smiles for _, _, smiles in ranked[:top_k]]
+                ranked.append((combined, metric_key, smiles_by_metric_key[metric_key], len(by_query)))
+            ranked.sort(key=lambda item: (-item[0], item[1]))
+            top_score = float(ranked[0][0]) if ranked else 0.0
+            second_score = float(ranked[1][0]) if len(ranked) > 1 else 0.0
+            diagnostics.append({
+                "molecule_id": str(molecule_id),
+                "spectral_top_score": top_score,
+                "spectral_second_score": second_score,
+                "spectral_margin": top_score - second_score,
+                "spectral_top_support_count": int(ranked[0][3]) if ranked else 0,
+                "spectral_candidate_count": int(len(ranked)),
+                "spectral_mass_fallback": 0,
+            })
+            candidates = [smiles for _, _, smiles, _ in ranked[:top_k]]
         else:
+            diagnostics.append({
+                "molecule_id": str(molecule_id),
+                "spectral_top_score": 0.0,
+                "spectral_second_score": 0.0,
+                "spectral_margin": 0.0,
+                "spectral_top_support_count": 0,
+                "spectral_candidate_count": 0,
+                "spectral_mass_fallback": 1,
+            })
             closest = {}
             for query_id in query_ids:
                 for key, (ppm_error, smiles) in fallback[query_id].items():
@@ -298,7 +319,13 @@ def retrieve(train_path, test_path, *, max_ppm=30.0, fallback_ppm=250.0, max_pea
         rows.append({"molecule_id": molecule_id, "smiles": ";".join(candidates)})
 
     print(f"Scanned {total:,} training rows; canonicalized {len(key_cache):,} candidate structures")
-    return pd.DataFrame(rows, columns=["molecule_id", "smiles"])
+    result = pd.DataFrame(rows, columns=["molecule_id", "smiles"])
+    if diagnostics_output:
+        diagnostics_path = Path(diagnostics_output)
+        diagnostics_path.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(diagnostics).to_csv(diagnostics_path, index=False)
+        print(f"Wrote spectral confidence diagnostics to {diagnostics_path}")
+    return result
 
 
 def main():
@@ -313,6 +340,7 @@ def main():
     parser.add_argument("--top-k", type=int, default=25)
     parser.add_argument("--exclude-source", help="Skip this ingest_lib while retrieving, for source-held-out validation")
     parser.add_argument("--exclude-keys-file", help="Newline-separated raw inchikey14 values excluded from reference retrieval")
+    parser.add_argument("--diagnostics-output", help="Optional per-molecule spectral confidence diagnostics CSV")
     args = parser.parse_args()
     if not 1 <= args.top_k <= 25:
         parser.error("--top-k must be between 1 and 25")
@@ -324,7 +352,7 @@ def main():
             if line.strip()
         }
         print(f"Excluding {len(exclude_keys):,} raw structure keys")
-    result = retrieve(args.train, args.test, max_ppm=args.max_ppm, fallback_ppm=args.fallback_ppm, max_peaks=args.max_peaks, batch_size=args.batch_size, top_k=args.top_k, exclude_source=args.exclude_source, exclude_keys=exclude_keys)
+    result = retrieve(args.train, args.test, max_ppm=args.max_ppm, fallback_ppm=args.fallback_ppm, max_peaks=args.max_peaks, batch_size=args.batch_size, top_k=args.top_k, exclude_source=args.exclude_source, exclude_keys=exclude_keys, diagnostics_output=args.diagnostics_output)
     result.to_csv(args.output, index=False)
     print(f"Wrote {len(result):,} molecule predictions to {args.output}")
 
