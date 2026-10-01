@@ -28,6 +28,14 @@ ADDUCT_SHIFT = {
     "[M-2H2O+H]+": -35.013854, "[M-H2O-H]-": -19.017841,
 }
 
+# Dimer adducts contain two copies of the neutral molecule. The shift is the
+# ionic adduct contribution, so neutral mass is (precursor - shift) / 2.
+DIMER_ADDUCT_SHIFT = {
+    "[2M+H]+": ADDUCT_SHIFT["[M+H]+"],
+    "[2M+Na]+": ADDUCT_SHIFT["[M+Na]+"],
+    "[2M-H]-": ADDUCT_SHIFT["[M-H]-"],
+}
+
 
 def _text(value) -> str:
     return value.strip() if isinstance(value, str) else ""
@@ -40,7 +48,10 @@ def neutral_mass(precursor_mz, adduct):
         return None
     if not math.isfinite(mz) or mz <= 0:
         return None
-    shift = ADDUCT_SHIFT.get(_text(adduct))
+    adduct = _text(adduct)
+    if adduct in DIMER_ADDUCT_SHIFT:
+        return (mz - DIMER_ADDUCT_SHIFT[adduct]) / 2
+    shift = ADDUCT_SHIFT.get(adduct)
     return mz - shift if shift is not None else None
 
 

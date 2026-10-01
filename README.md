@@ -10,13 +10,17 @@ The added folder `enveda-CASMI26-molecule-id-mass-spectra/` contains 2,539,608 l
 
 ## Code added
 
-The code includes streaming retrieval, spectrum preprocessing, RDKit metric keys, structure-grouped folds, source-, structure-, and database-held-out validation, a COCONUT CSV/ZIP candidate-table builder, an exact-mass candidate ranker, a validation scorer, overlap auditing, and submission validation. The [CPU validation notebook](notebooks/01_cpu_validation.ipynb) runs the library holdouts; [the database validation notebook](notebooks/02_database_validation.ipynb) builds the external candidate table and measures the COCONUT route. RDKit 2026.03.3 is required to match competition scoring.
+The code includes streaming retrieval, spectrum preprocessing, RDKit metric keys, structure-grouped folds, source-, structure-, and database-held-out validation, a COCONUT CSV/ZIP candidate-table builder, exact-mass and bond-cleavage fragment candidate rankers, a validation scorer, overlap auditing, and submission validation. The [CPU validation notebook](notebooks/01_cpu_validation.ipynb) runs the library holdouts; [the database validation notebook](notebooks/02_database_validation.ipynb) builds the external candidate table and measures the COCONUT route. RDKit 2026.03.3 is required to match competition scoring.
 
 ## Current results and decision
 
 The retrieval baseline scored MRR@25 **0.9261** on a 250-structure natural-product source holdout (hit@1 0.880; hit@5 0.976; hit@25 0.996). This is a known-structure retrieval setting: spectra from `enveda-np-examples` were held out while other library spectra for the same structures remained.
 
-On a stricter split, 278 metric structures and all 2,096 associated spectra were removed from the reference. The library-only retriever scored **0.000 MRR@25** as expected when the true structures are absent from its candidate pool. This is the key next step: add a frozen public natural-product candidate database and score structures that have no reference spectra. The competition describes hidden examples spanning public spectral-library compounds, known structures without public spectra, and novel structures; a library-only method cannot cover all three classes.
+On a stricter split, 278 metric structures and all 2,096 associated spectra were removed from the reference. The library-only retriever scored **0.000 MRR@25** as expected when the true structures are absent from its candidate pool.
+
+A closed-world database holdout used 547 `enveda-180` molecules (3,336 spectra) and 273,681 candidate structures from training metadata. Exact-mass ranking scored **0.1438 MRR@25** and **0.5850 hit@25**. A lightweight one-bond fragment reranker improved this to **0.3129 MRR@25** and **0.7550 hit@25**. Across three molecule-grouped seeds, the CPU HistGradientBoosting reranker averaged **0.5096 MRR@25** and **0.8787 hit@25** on validation folds. This candidate pool is derived from training structures, so it is a development benchmark rather than an independent database result.
+
+That external check is now complete as a pilot: on the October 2026 COCONUT snapshot, 46 overlapping `enveda-180` structures (309 spectra) were held out while retaining their structures among 8,851 mass-windowed COCONUT candidates. These query IDs are disjoint from the internal training queries. Exact-mass ranking scored **0.2876 MRR@25** / **0.7609 hit@25**; the fragment reranker scored **0.4051** / **0.8261**; three CPU-trained HistGradientBoosting models averaged **0.5631** / **0.9130**. The external sample is small, so use these results as a promising pilot and validate on a broader independent candidate set before final inference.
 
 ## Local development and Kaggle
 

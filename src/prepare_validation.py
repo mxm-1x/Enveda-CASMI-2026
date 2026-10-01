@@ -169,10 +169,23 @@ def _database_queries(args, parquet, out_dir: Path, queries_path: Path) -> None:
         metric_key for metric_key in set(metric_by_raw.values())
         if metric_key and metric_key in candidate_metric_keys
     }
-    selected_metric_keys = {
-        key for key in eligible_metric_keys
-        if selected_for_holdout(key, args.fraction, args.seed)
-    }
+    if args.holdout_keys_file:
+        requested_keys = {
+            line.strip()
+            for line in Path(args.holdout_keys_file).read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        }
+        missing_keys = requested_keys - eligible_metric_keys
+        if missing_keys:
+            raise ValueError(
+                f"{len(missing_keys):,} requested holdout keys are absent from the training/candidate overlap"
+            )
+        selected_metric_keys = requested_keys
+    else:
+        selected_metric_keys = {
+            key for key in eligible_metric_keys
+            if selected_for_holdout(key, args.fraction, args.seed)
+        }
     if not selected_metric_keys:
         raise RuntimeError(
             "Database holdout selected no structures shared by train and candidate database; "
@@ -232,6 +245,10 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--mode", choices=["structure", "source", "database"], default="structure")
     parser.add_argument("--candidate-database", help="Prepared candidate parquet with a metric_key column")
+    parser.add_argument(
+        "--holdout-keys-file",
+        help="Optional newline-delimited metric keys to hold out exactly in database mode",
+    )
     parser.add_argument("--fraction", type=float, default=0.001)
     parser.add_argument("--query-source", default="enveda-np-examples")
     parser.add_argument("--seed", type=int, default=20260929)
