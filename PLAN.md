@@ -77,7 +77,7 @@ These are CPU runs on the MacBook Pro M3. The local strict holdout, source holdo
 ### Phase 4 — Kaggle packaging and final selection
 
 - GitHub is the source of truth. Pin a Git SHA, create the source snapshot with `scripts/package_kaggle_source.py`, and upload it through the Kaggle website as a private Dataset. Attach competition data plus versioned candidate/model artifacts in the notebook's Input panel. Do not use Kaggle CLI; the committed notebook has internet disabled and cannot clone GitHub at runtime.
-- Run a training notebook on Kaggle to produce weights/indexes, then an inference notebook using those frozen artifacts. Make each committed run fit the 9-hour limit.
+- Use `notebooks/03_final_inference.ipynb` for the website-based run: it fits the final CPU reranker from the private feature input, builds test-mass-filtered COCONUT candidates, runs spectral retrieval, blends, and validates `submission.csv`. Keep the run under the 9-hour limit.
 - Write `submission.csv` with exactly one row per hidden `molecule_id`, up to 25 valid unique connectivity candidates, and no nulls. Keep runtime and provenance logs.
 - Use the public leaderboard sparingly as a sanity signal; choose the final version by held-out validation and robustness across chemistry slices.
 

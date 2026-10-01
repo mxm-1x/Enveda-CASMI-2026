@@ -10,16 +10,12 @@ Available compute: MacBook Pro M3 with 8 GB RAM and Kaggle RTX PRO 6000 allocati
 
 ```mermaid
 flowchart LR
-  A[Local Mac: code, small fixtures, review] --> B[GitHub: source of truth]
-  B -->|pinned source snapshot uploaded in browser| C[Kaggle notebook]
-  D[Kaggle competition data input] --> C
-  X[Versioned PubChem + COCONUT structures] --> C
-  C --> E[OOF validation metrics and model artifacts]
-  E -->|Kaggle notebook output / versioned Kaggle Dataset| F[Kaggle inference notebook]
-  B -->|same pinned source snapshot| F
-  D --> F
-  X --> F
-  F --> G[submission.csv]
+  A[Local Mac: validation, training, packaging] --> B[GitHub: pinned source]
+  B -->|source ZIP uploaded in browser| C[Kaggle inference notebook]
+  D[Kaggle competition data] --> C
+  X[COCONUT candidate snapshot] --> C
+  Y[Private ranker feature table] --> C
+  C -->|submission.csv| G[Notebook output]
   G --> H[Local review + Kaggle submission]
 ```
 
@@ -47,7 +43,9 @@ The committed competition run cannot `git clone` GitHub while internet is off. G
 │   └── write_submission.py       # validate SMILES, IDs, top-25, connectivity dedup
 ├── notebooks/
 │   ├── 00_retrieval_baseline.ipynb
-│   └── 01_cpu_validation.ipynb
+│   ├── 01_cpu_validation.ipynb
+│   ├── 02_database_validation.ipynb
+│   └── 03_final_inference.ipynb
 ├── kaggle/
 │   └── kernel-metadata.example.json # replace user and input dataset slugs
 ├── scripts/
@@ -94,8 +92,8 @@ Run inference using the exact pinned code, competition input, COCONUT snapshot, 
 1. Develop and review code on the Mac with tiny fixtures and synthetic spectra; push source to a GitHub repository. Keep data and large artifacts out of Git.
 2. Pin a Git commit and build the source snapshot. Upload it as a private Kaggle Dataset using the browser, then attach that dataset and competition data in the notebook Input panel.
 3. Run grouped validation and inference in Kaggle. Use GPU time only for a later fingerprint model that passes the validation gate. Keep each committed notebook under 9 hours.
-4. Export the winning ranker/model and metadata as a versioned Kaggle notebook output or Kaggle Dataset. Attach that artifact to the inference notebook. If artifact reuse is awkward, train and infer in one committed notebook only if the full run fits the time limit.
-5. Upload and commit the inference notebook through Kaggle's website from the same Git commit, attach competition, source, and model/candidate inputs, disable internet, and run. Download `submission.csv` from notebook output, review it locally, then submit through Kaggle.
+4. Upload the private ranker-training feature table, COCONUT candidate source, and (only if Kaggle's installed version differs) pinned RDKit wheel as Kaggle Dataset inputs.
+5. Upload and commit `03_final_inference.ipynb` through Kaggle's website, attach competition and asset inputs, disable internet, and run. The notebook fits the final CPU ranker, generates both prediction routes, and validates `submission.csv`. Download the output, review it locally, then submit through Kaggle.
 6. Record Git SHA, Kaggle notebook version, dataset version, fold metrics, and submission identifier in `reports/` for reproducibility.
 
 ## Resource allocation
