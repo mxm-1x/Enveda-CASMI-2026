@@ -4,14 +4,14 @@
 
 Build a reproducible ranked-candidate pipeline for Enveda CASMI 2026. Input is one or more MS/MS spectra per `molecule_id`; output is one CSV row per molecule with up to 25 semicolon-separated SMILES, ordered for MRR@25. Evaluation ignores stereo and compares RDKit tautomer-canonicalized InChIKey14 connectivity. The downloadable `test.parquet` is a training-derived dummy; Kaggle replaces it with hidden natural-product-like spectra during the submission rerun. The local dummy is useful for schema and runtime checks only.
 
-Available compute: Kaggle RTX PRO 6000 with 30 GPU hours/week and a MacBook Pro M3 with 8 GB RAM. Google Cloud Run is explicitly out of scope. Competition notebook commits require internet disabled and have a 9-hour execution limit. The full training parquet is too large for comfortable local loading, so the Mac is for development and small checks. Use Kaggle for full data work and neural training.
+Available compute: MacBook Pro M3 with 8 GB RAM and Kaggle RTX PRO 6000 allocation. Google Cloud Run is explicitly out of scope. Do development, CPU reranker training, and validation on the Mac; GPU training is deferred until an experiment beats the CPU system on held-out groups. Kaggle notebook commits require internet disabled and have a 9-hour execution limit. Upload code and inputs through the Kaggle website; do not use Kaggle CLI.
 
 ## Data flow
 
 ```mermaid
 flowchart LR
   A[Local Mac: code, small fixtures, review] --> B[GitHub: source of truth]
-  B -->|pinned commit uploaded with Kaggle CLI| C[Kaggle training notebook]
+  B -->|pinned source snapshot uploaded in browser| C[Kaggle notebook]
   D[Kaggle competition data input] --> C
   X[Versioned PubChem + COCONUT structures] --> C
   C --> E[OOF validation metrics and model artifacts]
@@ -23,7 +23,7 @@ flowchart LR
   G --> H[Local review + Kaggle submission]
 ```
 
-The committed competition run cannot `git clone` GitHub while internet is off. GitHub remains canonical; code is synchronized into Kaggle **before** the offline commit. Bundle the source into the notebook or publish it as a versioned Kaggle Dataset input, then use the Kaggle CLI locally (`kaggle kernels push`) to upload the notebook snapshot with input references. This is a GitHub-to-local-worktree-to-Kaggle upload, not a runtime GitHub pull. Record the Git commit SHA in notebook output. Never put Kaggle API tokens or credentials in GitHub.
+The committed competition run cannot `git clone` GitHub while internet is off. GitHub remains canonical; code is synchronized into Kaggle **before** the offline commit. Run `scripts/package_kaggle_source.py`, create or update a private Kaggle Dataset through the website, and attach it in the notebook's Input panel. Upload and commit the notebook through Kaggle's website. Record the Git commit SHA in notebook output. Never put Kaggle API tokens or credentials in GitHub.
 
 ## Repository structure
 
@@ -75,11 +75,11 @@ For both, compute molecule-level MRR@25, hit@1/5/25, candidate recall@25, and co
 
 ### 3. Candidate generation baseline
 
-Use a scalable indexed search, not all-pairs Python loops. Keep an exact spectrum hash for diagnostics and rare direct matches, but design for the hidden set's independent measurements. Apply precursor and adduct/mode constraints; formula is available only for reference structures and must be inferred or searched from hidden precursor data. Use sparse peak postings and multiple mass tolerances to produce a manageable candidate set. Score with modified cosine and neutral-loss similarity, aggregate query acquisitions and multiple reference spectra at molecule level, and deduplicate using metric-equivalent tautomer-normalized InChIKey14. The existing `src/retrieve.py` is a prototype and must be replaced before full-data inference.
+`src/retrieve.py` streams the training parquet and gates comparisons by ion mode and neutral precursor mass before spectral cosine and neutral-loss scoring. It aggregates spectra at molecule level and deduplicates to the competition metric. On the Mac, full-data source validation completed in about six minutes. Keep it as the high-confidence route for structures with matching library evidence; the strict structure holdout scored zero, as expected when truth structures are absent from the library.
 
 ### 4. Learned reranking
 
-Generate out-of-fold candidate lists from the baseline. Fit a CPU pairwise/listwise ranker on query-candidate rows with positive = metric-equivalent matching InChIKey14 and hard negatives = same-formula / nearest-spectrum alternatives. Features include multi-tolerance cosine, precursor ppm, formula/adduct/mode compatibility, neutral-loss score, structure-aware fragment evidence, source/instrument priors, and query/reference quality. Evaluate on disjoint training, early-stopping, and final validation molecules. The ranker cannot improve candidate recall; if recall@25 is weak, fix candidate expansion first.
+The current CPU HistGradientBoosting reranker uses mass error, one-bond fragment evidence, and molecular descriptors. It improves candidate order on internal held-out groups and a small external COCONUT pilot. The ranker cannot improve candidate recall; if recall@25 is weak, fix candidate expansion first.
 
 ### 5. GPU model, only if it earns its cost
 
@@ -87,33 +87,33 @@ Train a spectrum encoder to predict molecular fingerprints from binned peaks usi
 
 ### 6. Final inference and submission
 
-Run inference using the exact pinned code, competition input, and chosen model artifact. Verify exactly one row per test molecule, required header (`molecule_id,smiles`), no nulls/duplicates, valid up-to-25 candidate count, semicolon serialization, valid RDKit SMILES, and no duplicate InChIKey14 candidates within a row. Save ranked candidates and diagnostics as notebook outputs; submit only `submission.csv`.
+Run inference using the exact pinned code, competition input, COCONUT snapshot, and compatible CPU reranker artifacts. Keep spectral candidates first; `src/blend_predictions.py` uses reranker candidates only to fill vacant top-25 slots. The same-query validation preserved MRR and raised hit@25 by 0.004 on the 250-structure source slice. Verify one row per test molecule, required header (`molecule_id,smiles`), no nulls/duplicates, up to 25 semicolon-separated valid structures, and no duplicate InChIKey14 candidates. Save ranked candidates and diagnostics as notebook outputs; submit only `submission.csv`.
 
 ## GitHub and Kaggle handoff
 
 1. Develop and review code on the Mac with tiny fixtures and synthetic spectra; push source to a GitHub repository. Keep data and large artifacts out of Git.
-2. Pin a Git commit for each experiment. Use the Kaggle CLI locally to push the training notebook/code snapshot and attach the competition dataset as a notebook input. This is an upload before execution, not a runtime GitHub pull.
-3. Run grouped validation and training in Kaggle. Kaggle GPU time is scarce: first spend CPU time on audit/index and retrieval, then GPU time only on the fingerprint model. Keep each committed notebook under 9 hours.
+2. Pin a Git commit and build the source snapshot. Upload it as a private Kaggle Dataset using the browser, then attach that dataset and competition data in the notebook Input panel.
+3. Run grouped validation and inference in Kaggle. Use GPU time only for a later fingerprint model that passes the validation gate. Keep each committed notebook under 9 hours.
 4. Export the winning ranker/model and metadata as a versioned Kaggle notebook output or Kaggle Dataset. Attach that artifact to the inference notebook. If artifact reuse is awkward, train and infer in one committed notebook only if the full run fits the time limit.
-5. Push the inference notebook from the same Git commit, attach competition input and model-artifact input, disable internet, and commit/run. Pull the resulting `submission.csv` from Kaggle output, review it locally, then submit through Kaggle.
+5. Upload and commit the inference notebook through Kaggle's website from the same Git commit, attach competition, source, and model/candidate inputs, disable internet, and run. Download `submission.csv` from notebook output, review it locally, then submit through Kaggle.
 6. Record Git SHA, Kaggle notebook version, dataset version, fold metrics, and submission identifier in `reports/` for reproducibility.
 
 ## Resource allocation
 
 | Resource | Use | Avoid |
 |---|---|---|
-| MacBook M3, 8 GB | Code, small samples, schema checks, synthetic fixtures, metric review | Full 2.5M-row materialization, full model/index builds |
-| Kaggle CPU | Parquet scan, overlap audit, indexed library construction, grouped retrieval, tree ranker, final checks | Naive all-pairs scoring; repeatedly rebuilding identical artifacts |
-| Kaggle RTX PRO 6000 (30 h/week) | GPU fingerprint/spectrum model, batched GPU inference | Spending GPU hours on sparse lookup or unproven architectures |
+| MacBook M3, 8 GB | Streaming parquet scans, candidate filtering, CPU reranker, validation, Git packaging | Full in-memory materialization; GPU neural training |
+| Kaggle CPU | Hidden-test inference if the Mac runtime or notebook limit requires it | Naive all-pairs scoring; repeatedly rebuilding identical artifacts |
+| Kaggle RTX PRO 6000 allocation | Reserved for a future spectrum-to-fingerprint pilot after CPU gates | Spending GPU hours on sparse lookup or unproven architectures |
 | Google Cloud Run | Not used | All preprocessing, training, artifact handling, and inference |
 
 ## Experiment gates
 
 1. **Audit gate:** record train version, data quality, and the known dummy-test overlap; do not use dummy-test labels or statistics for model selection.
-2. **Retrieval gate:** measure natural-product reference-available and structure-held-out candidate recall@25 and MRR@25; confirm scalable runtime/memory.
-3. **Candidate gate:** measure PubChem/COCONUT coverage and same-formula isomer ranking before adding more structures.
+2. **Retrieval gate:** source holdout is measured at MRR@25 0.9261; strict structure holdout is 0.000 for library-only retrieval. Confirm runtime/memory on final inference.
+3. **Candidate gate:** the COCONUT pilot is measured on 46 held-out targets; add a broader independent candidate set before relying on class-2 performance.
 4. **Reranker gate:** accept only repeatable molecule-level MRR gains across seeds/folds.
 5. **Neural gate:** spend GPU time only if the neural model adds gains to the retrieval/ranker blend.
 6. **Submission gate:** pass structural validation and reproduce selected metrics from the recorded commit/config.
 
-The competition files are present locally. Only schema, counts, and exact dummy-test overlap have been measured so far; no training run or predictive validation score is claimed.
+The competition files are present locally. CPU source/structure holdouts, internal and external candidate reranking, and the conservative fallback blend have been measured on the Mac. The visible test remains a dummy and is only for schema/runtime validation; hidden-set performance is not known.

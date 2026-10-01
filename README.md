@@ -10,7 +10,7 @@ The added folder `enveda-CASMI26-molecule-id-mass-spectra/` contains 2,539,608 l
 
 ## Code added
 
-The code includes streaming retrieval, spectrum preprocessing, RDKit metric keys, structure-grouped folds, source-, structure-, and database-held-out validation, a COCONUT CSV/ZIP candidate-table builder, exact-mass and bond-cleavage fragment candidate rankers, a validation scorer, overlap auditing, and submission validation. The [CPU validation notebook](notebooks/01_cpu_validation.ipynb) runs the library holdouts; [the database validation notebook](notebooks/02_database_validation.ipynb) builds the external candidate table and measures the COCONUT route. RDKit 2026.03.3 is required to match competition scoring.
+The code includes streaming retrieval, spectrum preprocessing, RDKit metric keys, structure-grouped folds, source-, structure-, and database-held-out validation, a COCONUT CSV/ZIP candidate-table builder, exact-mass and bond-cleavage fragment candidate rankers, a CPU gradient-boosting reranker, fill-only prediction blending, a validation scorer, overlap auditing, and submission validation. The [CPU validation notebook](notebooks/01_cpu_validation.ipynb) runs the library holdouts; [the database validation notebook](notebooks/02_database_validation.ipynb) builds the external candidate table and measures the COCONUT route. RDKit 2026.03.3 is required to match competition scoring.
 
 ## Current results and decision
 
@@ -22,11 +22,13 @@ A closed-world database holdout used 547 `enveda-180` molecules (3,336 spectra) 
 
 That external check is now complete as a pilot: on the October 2026 COCONUT snapshot, 46 overlapping `enveda-180` structures (309 spectra) were held out while retaining their structures among 8,851 mass-windowed COCONUT candidates. These query IDs are disjoint from the internal training queries. Exact-mass ranking scored **0.2876 MRR@25** / **0.7609 hit@25**; the fragment reranker scored **0.4051** / **0.8261**; three CPU-trained HistGradientBoosting models averaged **0.5631** / **0.9130**. The external sample is small, so use these results as a promising pilot and validate on a broader independent candidate set before final inference.
 
+On a common 250-molecule source holdout, COCONUT-only candidates with an internal-model ensemble scored **0.2745 MRR@25** (candidate recall@25 0.724), while spectral retrieval scored **0.9261**. The final CPU model, fit on 547 disjoint training groups, scored **0.2628 MRR@25** alone. The implemented `src/blend_predictions.py` preserves spectral rank and fills open positions only; the final model blend scored **0.92634 MRR@25** and raised hit@25 from **0.996 to 1.000** on that holdout. This small gain supports using database candidates as a fallback, not ranking them ahead of spectral matches.
+
 ## Local development and Kaggle
 
-Use the MacBook for code, small checks, and Git. The full structure-key map took about nine minutes locally on four CPU workers and is cached for reuse. Kaggle CPU is appropriate for the current retrieval and database pipeline. Save the limited GPU allocation for a learned spectrum-to-fingerprint model after database candidate recall is measured.
+The full CPU validation and model development were run on the MacBook Pro M3 with 8 GB RAM; the 2.5M-row train parquet was streamed rather than loaded into memory. Use Kaggle only for the website-based hidden-test notebook run. Save the limited GPU allocation for a learned spectrum-to-fingerprint model after a broader database candidate benchmark.
 
-Kaggle submissions must run in a notebook with internet disabled and produce `submission.csv`. Upload the versioned source snapshot as a private Kaggle Dataset, attach the competition data and pinned RDKit wheel dataset, then run [01_cpu_validation.ipynb](notebooks/01_cpu_validation.ipynb). No Kaggle CLI or Google Cloud Run is part of this workflow.
+Kaggle submissions must run in a notebook with internet disabled and produce `submission.csv`. For final inference, use [03_final_inference.ipynb](notebooks/03_final_inference.ipynb). Attach the competition data, versioned source snapshot, COCONUT ZIP, private ranker feature table, and the pinned RDKit wheel dataset if Kaggle's installed RDKit is not 2026.03.3. No Kaggle CLI or Google Cloud Run is part of this workflow.
 
 To refresh the upload snapshot after committing code:
 
@@ -34,6 +36,6 @@ To refresh the upload snapshot after committing code:
 python3 scripts/package_kaggle_source.py
 ```
 
-The package is staged at `/private/tmp/casmi-source` and copied into `data/kaggle-source-upload/` for the Kaggle Dataset version. The project uses no Kaggle CLI and excludes Google Cloud Run.
+The package is staged at `/private/tmp/casmi-source` and copied into `data/kaggle-source-upload/` for the Kaggle Dataset version. The small, private training feature input is in `data/kaggle-ranker-training/ranker_training_features.parquet` (also packaged as `data/CASMI26_Ranker_Training_Features.zip`). Suggested Kaggle Dataset names are `casmi26-source-code` and `casmi26-ranker-training-features`. The project uses no Kaggle CLI and excludes Google Cloud Run.
 
 After downloading the official COCONUT CSV-lite archive, attach it as a private Kaggle Dataset and run `src/prepare_candidates.py` on Kaggle CPU to create a compact Parquet table with canonical SMILES, formula, exact mass, and the competition metric key. It deduplicates structures by InChIKey14 and writes a provenance manifest beside the table.
